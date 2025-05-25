@@ -108,6 +108,15 @@ GET /parse-document
 
 Include a file in the request using multipart/form-data with the key "file". The application will parse the document and extract structured information using Google's Gemini API.
 
+### Document Types
+
+The application supports parsing different types of documents. You can specify the document type using the `document_type` parameter in your request:
+
+- `form_941`: For parsing IRS Form 941 documents (default)
+- `job_details`: For parsing job-related documents
+
+If no document type is specified, the application defaults to `form_941` for backward compatibility.
+
 ### Example curl Command
 
 Here's an example of how to use the `/parse-document` endpoint with curl:
@@ -115,6 +124,7 @@ Here's an example of how to use the `/parse-document` endpoint with curl:
 ```bash
 curl -X GET "http://localhost:8080/parse-document" \
   -F "file=@/path/to/your/document.pdf" \
+  -F "document_type=form_941" \
   -H "Content-Type: multipart/form-data"
 ```
 
@@ -124,9 +134,11 @@ curl -X GET "http://localhost:8080/parse-document" \
 - `http://localhost:8080/parse-document`: The endpoint URL
 - `-F "file=@/path/to/your/document.pdf"`: Uploads a file using multipart/form-data
   - Replace `/path/to/your/document.pdf` with the actual path to your PDF file
+- `-F "document_type=form_941"`: Specifies the document type to parse
+  - Options: `form_941` (default) or `job_details`
 - `-H "Content-Type: multipart/form-data"`: Sets the appropriate content type header
 
-#### Example Response:
+#### Example Response for Form 941:
 
 ```json
 {
@@ -134,6 +146,7 @@ curl -X GET "http://localhost:8080/parse-document" \
   "message": "Document parsed successfully",
   "file_name": "f941.pdf",
   "file_size": 1234567,
+  "document_type": "form_941",
   "parsed_result": {
     "EIN": "12-3456789",
     "Name": "Company Name",
@@ -158,6 +171,25 @@ curl -X GET "http://localhost:8080/parse-document" \
 }
 ```
 
+#### Example Response for Job Details:
+
+```json
+{
+  "status": "success",
+  "message": "Document parsed successfully",
+  "file_name": "job_posting.pdf",
+  "file_size": 987654,
+  "document_type": "job_details",
+  "parsed_result": {
+    "title": "Senior Software Engineer",
+    "salary": "$120,000 - $150,000 per year",
+    "location": "San Francisco, CA (Remote Available)",
+    "experience": "5+ years of experience in software development",
+    "employment-type": "Full-time"
+  }
+}
+```
+
 Note: The response includes a structured `parsed_result` object with fields extracted from the document. These values are extracted from the document using Google's Gemini API, which analyzes the document content to identify and extract the relevant information.
 
 ### Example Postman Request
@@ -171,12 +203,14 @@ Here's how to set up a request in Postman to use the `/parse-document` endpoint:
 2. **Set the request URL**:
    - Enter `http://localhost:8080/parse-document`
 
-3. **Add the file upload**:
+3. **Add the file upload and document type**:
    - Go to the "Body" tab
    - Select "form-data"
    - Add a new key called "file"
    - Click on the dropdown next to the key and select "File"
    - Click "Select Files" and choose your PDF document
+   - Add another key called "document_type" (as Text)
+   - Enter either "form_941" or "job_details" as the value
 
 4. **Send the request**:
    - Click the "Send" button
@@ -186,6 +220,7 @@ Here's how to set up a request in Postman to use the `/parse-document` endpoint:
 - Postman automatically sets the correct `Content-Type` header for multipart/form-data
 - You can save this request to a collection for future use
 - To test with different files, simply select a different file in the form-data section
+- If you don't specify a document_type, the system will default to "form_941"
 
 ## JSON Response Handling
 
@@ -219,7 +254,8 @@ This application includes integration with PostgreSQL for storing parsed documen
 CREATE TABLE IF NOT EXISTS parsed_fields (
     id SERIAL PRIMARY KEY,
     parsed_fields JSONB NOT NULL,
-    document_name TEXT NOT NULL,
+    document_name VARCHAR NOT NULL,
+    document_type VARCHAR NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -246,7 +282,8 @@ The request body should be a JSON object with the following structure:
       "field3": "value3"
     }
   },
-  "document_name": "example.pdf"
+  "document_name": "example.pdf",
+  "document_type": "form_941"
 }
 ```
 
@@ -267,7 +304,8 @@ curl -X POST "http://localhost:8080/finalize-parsed-fields" \
       "Address": "Full address",
       "Box 1": "$11.11"
     },
-    "document_name": "f941.pdf"
+    "document_name": "f941.pdf",
+    "document_type": "form_941"
   }'
 ```
 

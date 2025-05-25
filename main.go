@@ -61,6 +61,7 @@ type ParsedFields struct {
 type FinalizeRequest struct {
 	ParsedFields json.RawMessage `json:"parsed_fields"`
 	DocumentName string          `json:"document_name"`
+	DocumentType string          `json:"document_type"`
 }
 
 func jobDetailsPrompt() string {
@@ -181,7 +182,8 @@ func initDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS parsed_fields (
 		id SERIAL PRIMARY KEY,
 		parsed_fields JSONB NOT NULL,
-		document_name TEXT NOT NULL,
+		document_name VARCHAR NOT NULL,
+		document_type VARCHAR NOT NULL,
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -195,12 +197,28 @@ func initDB(db *sql.DB) error {
 	return nil
 }
 
-// parseDocumentWithGeminiMultimodal uses the Gemini AI API to extract job details from a document
-// by sending the file directly as binary data instead of as text
-func parseDocumentWithGeminiMultimodal(ctx context.Context, client *genai.Client, fileContent []byte, mimeType string) (Form941, error) {
+// DocumentType represents the type of document to parse
+type DocumentType string
 
-	// Create a detailed schema-based instruction for the model
-	schemaInstruction := form941Prompt()
+const (
+	JobDetailsType DocumentType = "job_details"
+	Form941Type    DocumentType = "form_941"
+)
+
+// parseDocumentWithGeminiMultimodal uses the Gemini AI API to extract structured data from a document
+// by sending the file directly as binary data instead of as text
+func parseDocumentWithGeminiMultimodal[T JobDetails | Form941](ctx context.Context, client *genai.Client, fileContent []byte, mimeType string, docType DocumentType) (T, error) {
+	// Determine which prompt to use based on document type
+	var schemaInstruction string
+	switch docType {
+	case JobDetailsType:
+		schemaInstruction = jobDetailsPrompt()
+	case Form941Type:
+		schemaInstruction = form941Prompt()
+	default:
+		var zero T
+		return zero, fmt.Errorf("unsupported document type: %s", docType)
+	}
 
 	// Create the chat completion request
 	model := client.GenerativeModel("gemini-2.0-flash")
@@ -219,18 +237,21 @@ func parseDocumentWithGeminiMultimodal(ctx context.Context, client *genai.Client
 	// Call the Gemini AI API
 	resp, err := model.GenerateContent(ctx, prompt...)
 	if err != nil {
-		return Form941{}, fmt.Errorf("error calling Gemini AI API: %w", err)
+		var zero T
+		return zero, fmt.Errorf("error calling Gemini AI API: %w", err)
 	}
 
 	// Extract the content from the response
 	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
-		return Form941{}, fmt.Errorf("no response from Gemini AI API")
+		var zero T
+		return zero, fmt.Errorf("no response from Gemini AI API")
 	}
 
 	// Get the text content from the response
 	content, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
 	if !ok {
-		return Form941{}, fmt.Errorf("unexpected response format from Gemini AI API")
+		var zero T
+		return zero, fmt.Errorf("unexpected response format from Gemini AI API")
 	}
 
 	// Clean the response to ensure it's valid JSON
@@ -242,15 +263,15 @@ func parseDocumentWithGeminiMultimodal(ctx context.Context, client *genai.Client
 	// Log the cleaned JSON for debugging
 	log.Printf("Cleaned JSON response: %s", jsonStr)
 
-	// Parse the JSON response into JobDetails struct
-	//var jobDetails JobDetails
-	var form941 Form941
-	if err := json.Unmarshal([]byte(jsonStr), &form941); err != nil {
-		log.Printf("JSON parsing failed: %v. Falling back to text-based approach.", err)
-		return Form941{}, fmt.Errorf("error parsing Gemini AI response: %w\nResponse: %s", err, jsonStr)
+	// Parse the JSON response into the appropriate struct based on document type
+	var result T
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		log.Printf("JSON parsing failed for %T: %v", result, err)
+		var zero T
+		return zero, fmt.Errorf("error parsing Gemini AI response for %T: %w\nResponse: %s", result, err, jsonStr)
 	}
 
-	return form941, nil
+	return result, nil
 }
 
 func main() {
@@ -339,24 +360,54 @@ func main() {
 			mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 		}
 
-		// Parse the document using Gemini's multimodal capabilities
-		ctx := r.Context()
-		parsedResult, err := parseDocumentWithGeminiMultimodal(ctx, client, fileContent, mimeType)
-		if err != nil {
-			// Fallback to text-based approach if multimodal approach fails
-			log.Printf("Multimodal approach failed: %v. Falling back to text-based approach.", err)
-			if err != nil {
-				http.Error(w, "Error parsing document: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
+		// Determine document type from request parameter, default to Form941Type if not specified
+		docTypeStr := r.FormValue("document_type")
+		var docType DocumentType
+		switch docTypeStr {
+		case "job_details":
+			docType = JobDetailsType
+		case "form_941":
+			docType = Form941Type
+		default:
+			// Default to Form941Type for backward compatibility
+			docType = Form941Type
 		}
 
-		// Return a response with the structured job details
+		// Parse the document using Gemini's multimodal capabilities
+		ctx := r.Context()
+
+		// Use the appropriate type parameter based on document type
+		var parsedResult interface{}
+		var parseErr error
+
+		switch docType {
+		case JobDetailsType:
+			var result JobDetails
+			result, parseErr = parseDocumentWithGeminiMultimodal[JobDetails](ctx, client, fileContent, mimeType, docType)
+			parsedResult = result
+		case Form941Type:
+			var result Form941
+			result, parseErr = parseDocumentWithGeminiMultimodal[Form941](ctx, client, fileContent, mimeType, docType)
+			parsedResult = result
+		default:
+			http.Error(w, "Unsupported document type: "+string(docType), http.StatusBadRequest)
+			return
+		}
+
+		if parseErr != nil {
+			// Fallback to text-based approach if multimodal approach fails
+			log.Printf("Multimodal approach failed: %v. Falling back to text-based approach.", parseErr)
+			http.Error(w, "Error parsing document: "+parseErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return a response with the structured details
 		response := map[string]interface{}{
 			"status":        "success",
 			"message":       "Document parsed successfully",
 			"file_name":     header.Filename,
 			"file_size":     len(fileContent),
+			"document_type": docType,
 			"parsed_result": parsedResult,
 		}
 
@@ -405,12 +456,12 @@ func main() {
 		// Insert the data into the database
 		now := time.Now()
 		query := `
-		INSERT INTO parsed_fields (parsed_fields, document_name, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO parsed_fields (parsed_fields, document_name, document_type, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id`
 
 		var id int
-		err := db.QueryRow(query, req.ParsedFields, req.DocumentName, now, now).Scan(&id)
+		err := db.QueryRow(query, req.ParsedFields, req.DocumentName, req.DocumentType, now, now).Scan(&id)
 		if err != nil {
 			http.Error(w, "Error storing parsed fields: "+err.Error(), http.StatusInternalServerError)
 			return
