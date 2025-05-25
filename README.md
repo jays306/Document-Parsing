@@ -402,9 +402,3 @@ curl -X POST "http://localhost:8080/finalize-parsed-fields" \
 ```
 
 The response includes the ID of the newly created record in the database.
-
-### Database Setup
-
-Before using the `/finalize-parsed-fields` endpoint, you need to set up a PostgreSQL database and configure the application to connect to it using the environment variables described in the "Prerequisites" section. See the "PostgreSQL Installation" subsection under "Prerequisites" for detailed installation and setup instructions.
-
-If the database connection fails, the application will log a warning and the `/finalize-parsed-fields` endpoint will not be available, but the rest of the application will continue to function.
