@@ -143,6 +143,18 @@ source ~/.bashrc
 
 For development, you can use the methods described above to set environment variables locally.
 
+### Project Structure
+
+The project is organized into the following packages:
+
+- `pkg/models`: Contains data structures used throughout the application
+- `pkg/parsers`: Contains document parsing logic using the Gemini API
+- `pkg/database`: Contains database operations for storing parsed fields
+- `pkg/api`: Contains HTTP handlers for the API endpoints
+- `pkg/config`: Contains configuration management for the application
+
+This modular structure makes the code more maintainable and easier to extend with new features.
+
 ### Using a .env File (Recommended for Development)
 
 This application supports loading environment variables from a `.env` file using the [godotenv](https://github.com/joho/godotenv) package. This is the recommended approach for development environments.
