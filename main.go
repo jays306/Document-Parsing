@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/google/generative-ai-go/genai"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"google.golang.org/api/option"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // JobDetails represents the structured response format for parsed job information
@@ -45,6 +48,21 @@ type Form941 struct {
 	Box14     string `json:"Box 14"`
 }
 
+// ParsedFields represents the data to be stored in the database
+type ParsedFields struct {
+	ID           int             `json:"id"`
+	ParsedFields json.RawMessage `json:"parsed_fields"`
+	DocumentName string          `json:"document_name"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+}
+
+// FinalizeRequest represents the request body for the finalize-parsed-fields endpoint
+type FinalizeRequest struct {
+	ParsedFields json.RawMessage `json:"parsed_fields"`
+	DocumentName string          `json:"document_name"`
+}
+
 func jobDetailsPrompt() string {
 	return `You are a document parser specialized in extracting job information.
 Extract the following details from the document: job title, salary, location, experience required, and employment type.
@@ -63,19 +81,21 @@ If you cannot find a specific field, use an empty string for that field.`
 }
 
 func form941Prompt() string {
-	return `You are a document parser specialized in extracting job information.
-Extract the following details from the document: job title, salary, location, experience required, and employment type.
+	return `You are a document parser specialized in extracting job-related information.
+Extract the following details from the document based on Form 941: EIN, name, trade name, address, and boxes 1–14.
+Note that EIN values are consistently formatted as separate digits that, when combined, form a 9-digit number.
+All box fields except for Box 4 should follow this format: $11.11 — consisting of a dollar sign, one or more digits, a decimal point, and two digits.
 
 Return ONLY a valid JSON object with the following structure:
 {
-	"EIN": "12-3456789",
+	"EIN": "123456789",
 	"Name": "Company Name",
 	"Trade name": "Trade name",
 	"Address": "Full address",
 	"Box 1": "$11.11",
 	"Box 2": "$22.22",
 	"Box 3": "$33.33",
-	"Box 4": True or False,
+	"Box 4": true or false,
 	"Box 5e": "$55.55",
 	"Box 5f": "$55.55",
 	"Box 6": "$66.66",
@@ -105,6 +125,74 @@ func cleanJSONResponse(jsonStr string) string {
 
 	// Trim any remaining whitespace
 	return strings.TrimSpace(jsonStr)
+}
+
+// connectDB establishes a connection to the PostgreSQL database
+func connectDB() (*sql.DB, error) {
+	// Get database connection details from environment variables
+	dbHost := os.Getenv("DB_HOST")
+	if dbHost == "" {
+		dbHost = "localhost"
+	}
+
+	dbPort := os.Getenv("DB_PORT")
+	if dbPort == "" {
+		dbPort = "5432"
+	}
+
+	dbUser := os.Getenv("DB_USER")
+	if dbUser == "" {
+		dbUser = "postgres"
+	}
+
+	dbPassword := os.Getenv("DB_PASSWORD")
+	if dbPassword == "" {
+		return nil, fmt.Errorf("DB_PASSWORD environment variable is not set")
+	}
+
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "document_parsing"
+	}
+
+	// Create the connection string
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		dbHost, dbPort, dbUser, dbPassword, dbName)
+
+	// Open a connection to the database
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to database: %w", err)
+	}
+
+	// Test the connection
+	err = db.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("error pinging database: %w", err)
+	}
+
+	return db, nil
+}
+
+// initDB initializes the database by creating the necessary tables if they don't exist
+func initDB(db *sql.DB) error {
+	// Create the parsed_fields table if it doesn't exist
+	createTableSQL := `
+	CREATE TABLE IF NOT EXISTS parsed_fields (
+		id SERIAL PRIMARY KEY,
+		parsed_fields JSONB NOT NULL,
+		document_name TEXT NOT NULL,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	_, err := db.Exec(createTableSQL)
+	if err != nil {
+		return fmt.Errorf("error creating parsed_fields table: %w", err)
+	}
+
+	log.Println("Database initialized successfully")
+	return nil
 }
 
 // parseDocumentWithGeminiMultimodal uses the Gemini AI API to extract job details from a document
@@ -188,8 +276,37 @@ func main() {
 	}
 	defer client.Close()
 
+	// Connect to the database
+	db, err := connectDB()
+	if err != nil {
+		log.Printf("Warning: Failed to connect to database: %v", err)
+		log.Println("The /finalize-parsed-fields endpoint will not be available.")
+		db = nil
+	} else {
+		// Initialize the database
+		if err := initDB(db); err != nil {
+			log.Printf("Warning: Failed to initialize database: %v", err)
+			log.Println("The /finalize-parsed-fields endpoint will not be available.")
+			db = nil
+		} else {
+			log.Println("Database connection established and initialized successfully.")
+		}
+		defer db.Close()
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /parse-document", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /parse-document", func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+
+		// Handle preflight OPTIONS request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		// Get the file from the request
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -210,6 +327,10 @@ func main() {
 		switch {
 		case strings.HasSuffix(strings.ToLower(header.Filename), ".pdf"):
 			mimeType = "application/pdf"
+		case strings.HasSuffix(strings.ToLower(header.Filename), ".csv"):
+			mimeType = "text/csv"
+		case strings.HasSuffix(strings.ToLower(header.Filename), ".png"):
+			mimeType = "image/png"
 		case strings.HasSuffix(strings.ToLower(header.Filename), ".txt"):
 			mimeType = "text/plain"
 		case strings.HasSuffix(strings.ToLower(header.Filename), ".doc"):
@@ -240,6 +361,68 @@ func main() {
 		}
 
 		// Return the response as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	})
+
+	// Add the finalize-parsed-fields endpoint
+	mux.HandleFunc("POST /finalize-parsed-fields", func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+
+		// Handle preflight OPTIONS request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Check if database is available
+		if db == nil {
+			http.Error(w, "Database connection is not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse the request body
+		var req FinalizeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Error parsing request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Validate the request
+		if req.DocumentName == "" {
+			http.Error(w, "document_name is required", http.StatusBadRequest)
+			return
+		}
+
+		if len(req.ParsedFields) == 0 {
+			http.Error(w, "parsed_fields is required", http.StatusBadRequest)
+			return
+		}
+
+		// Insert the data into the database
+		now := time.Now()
+		query := `
+		INSERT INTO parsed_fields (parsed_fields, document_name, created_at, updated_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id`
+
+		var id int
+		err := db.QueryRow(query, req.ParsedFields, req.DocumentName, now, now).Scan(&id)
+		if err != nil {
+			http.Error(w, "Error storing parsed fields: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return a success response
+		response := map[string]interface{}{
+			"status":  "success",
+			"message": "Parsed fields stored successfully",
+			"id":      id,
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	})

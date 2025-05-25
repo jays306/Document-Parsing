@@ -1,4 +1,4 @@
-# Document Parsing
+# Document Parsing System
 
 A Go application that provides an HTTP endpoint for parsing documents using Google's Gemini API.
 
@@ -10,12 +10,22 @@ This application requires the following environment variables to be set:
 
 - `GEMINI_API_KEY`: Your Google Gemini API key for authentication with the Gemini API.
   - If this variable is not set, the application will exit with a fatal error.
+- `DB_PASSWORD`: The password for the PostgreSQL database.
+  - If this variable is not set, the database connection will fail and the `/finalize-parsed-fields` endpoint will not be available.
 
 ### Optional Environment Variables
 
 - `PORT`: The port number on which the server will listen.
   - Default value: `8080`
   - If not specified, the server will listen on port 8080.
+- `DB_HOST`: The hostname of the PostgreSQL database.
+  - Default value: `localhost`
+- `DB_PORT`: The port number of the PostgreSQL database.
+  - Default value: `5432`
+- `DB_USER`: The username for the PostgreSQL database.
+  - Default value: `postgres`
+- `DB_NAME`: The name of the PostgreSQL database.
+  - Default value: `document_parsing`
 
 ## Setting Environment Variables
 
@@ -69,9 +79,14 @@ cp .env .env
 ```
 # Required environment variables
 GEMINI_API_KEY=your-api-key-here
+DB_PASSWORD=your-database-password
 
 # Optional environment variables
 PORT=8080
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_NAME=document_parsing
 ```
 
 3. Run the application normally:
@@ -185,3 +200,91 @@ The application includes a `cleanJSONResponse` function that:
 3. Trims any remaining whitespace
 
 This ensures that even if the Gemini API returns JSON wrapped in markdown code blocks, the application can still parse it correctly.
+
+## CORS Support
+
+This application includes Cross-Origin Resource Sharing (CORS) support, allowing it to be accessed from web applications hosted on different domains. The following CORS headers are set on all responses:
+
+- `Access-Control-Allow-Origin: *` - Allows requests from any origin
+- `Access-Control-Allow-Methods: POST, OPTIONS` - Allows POST requests and preflight OPTIONS requests
+- `Access-Control-Allow-Headers: Content-Type` - Allows the Content-Type header in requests
+
+This configuration enables the API to be used by web applications regardless of where they are hosted.
+
+## Database Integration
+
+This application includes integration with PostgreSQL for storing parsed document data. The application creates a table called `parsed_fields` with the following schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS parsed_fields (
+    id SERIAL PRIMARY KEY,
+    parsed_fields JSONB NOT NULL,
+    document_name TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Finalize Parsed Fields Endpoint
+
+Once you have parsed a document using the `/parse-document` endpoint, you can store the parsed data in the database using the `/finalize-parsed-fields` endpoint:
+
+```
+POST /finalize-parsed-fields
+```
+
+#### Request Body
+
+The request body should be a JSON object with the following structure:
+
+```json
+{
+  "parsed_fields": {
+    "field1": "value1",
+    "field2": "value2",
+    "nested": {
+      "field3": "value3"
+    }
+  },
+  "document_name": "example.pdf"
+}
+```
+
+The `parsed_fields` property can contain any valid JSON object representing the parsed data from the document.
+
+#### Example curl Command
+
+Here's an example of how to use the `/finalize-parsed-fields` endpoint with curl:
+
+```bash
+curl -X POST "http://localhost:8080/finalize-parsed-fields" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parsed_fields": {
+      "EIN": "12-3456789",
+      "Name": "Company Name",
+      "Trade Name": "Trade name",
+      "Address": "Full address",
+      "Box 1": "$11.11"
+    },
+    "document_name": "f941.pdf"
+  }'
+```
+
+#### Example Response
+
+```json
+{
+  "status": "success",
+  "message": "Parsed fields stored successfully",
+  "id": 1
+}
+```
+
+The response includes the ID of the newly created record in the database.
+
+### Database Setup
+
+Before using the `/finalize-parsed-fields` endpoint, you need to set up a PostgreSQL database and configure the application to connect to it using the environment variables described in the "Environment Variables" section.
+
+If the database connection fails, the application will log a warning and the `/finalize-parsed-fields` endpoint will not be available, but the rest of the application will continue to function.
