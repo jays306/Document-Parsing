@@ -2,30 +2,111 @@
 
 A Go application that provides an HTTP endpoint for parsing documents using Google's Gemini API.
 
-## Environment Variables
+## Prerequisites
+
+This section covers the prerequisites needed to run the application, including environment variables and database setup.
+
+### PostgreSQL Installation
+
+This application requires PostgreSQL for storing parsed document data. Follow these instructions to install PostgreSQL on your system:
+
+#### macOS
+
+##### Using Homebrew (Recommended)
+
+1. Install Homebrew if you haven't already:
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. Install PostgreSQL:
+   ```bash
+   brew install postgresql
+   ```
+
+3. Start the PostgreSQL service:
+   ```bash
+   brew services start postgresql
+   ```
+
+##### Using the Installer
+
+1. Download the PostgreSQL installer from the [official website](https://www.postgresql.org/download/macosx/).
+2. Run the installer and follow the installation wizard.
+3. Complete the installation.
+
+#### Creating a Database and User
+
+After installing PostgreSQL, you need to create a database and user for this application:
+
+1. Switch to the PostgreSQL user:
+   ```bash
+   sudo -i -u postgres
+   ```
+
+2. Access the PostgreSQL command-line interface:
+   ```bash
+   psql
+   ```
+
+3. Create a new user (replace `your_username` and `your_password` with your desired values):
+   ```sql
+   CREATE USER your_username WITH PASSWORD 'your_password';
+   ```
+
+4. Create a new database (default name is `document_parsing`):
+   ```sql
+   CREATE DATABASE document_parsing;
+   ```
+
+5. Grant privileges to the user on the database:
+   ```sql
+   GRANT ALL PRIVILEGES ON DATABASE document_parsing TO your_username;
+   ```
+
+6. Exit the PostgreSQL command-line interface:
+   ```sql
+   \q
+   ```
+
+7. Exit the postgres user shell:
+   ```bash
+   exit
+   ```
+
+8. Update your environment variables or .env file with the database connection details:
+   ```
+   DB_HOST=localhost
+   DB_PORT=5432
+   DB_USER=your_username
+   DB_PASSWORD=your_password
+   DB_NAME=document_parsing
+   ```
+
+### Environment Variables
 
 This application requires the following environment variables to be set:
 
-### Required Environment Variables
+#### Required Environment Variables
 
 - `GEMINI_API_KEY`: Your Google Gemini API key for authentication with the Gemini API.
   - If this variable is not set, the application will exit with a fatal error.
-- `DB_PASSWORD`: The password for the PostgreSQL database.
-  - If this variable is not set, the database connection will fail and the `/finalize-parsed-fields` endpoint will not be available.
+  - `DB_PASSWORD`: The password for the PostgreSQL database.
+    - If this variable is not set, the database connection will fail and the `/finalize-parsed-fields` endpoint will not be available.
 
-### Optional Environment Variables
+#### Optional Environment Variables
 
 - `PORT`: The port number on which the server will listen.
   - Default value: `8080`
   - If not specified, the server will listen on port 8080.
-- `DB_HOST`: The hostname of the PostgreSQL database.
-  - Default value: `localhost`
-- `DB_PORT`: The port number of the PostgreSQL database.
-  - Default value: `5432`
-- `DB_USER`: The username for the PostgreSQL database.
-  - Default value: `postgres`
-- `DB_NAME`: The name of the PostgreSQL database.
-  - Default value: `document_parsing`
+  - `DB_HOST`: The hostname of the PostgreSQL database.
+    - Default value: `localhost`
+  - `DB_PORT`: The port number of the PostgreSQL database.
+    - Default value: `5432`
+  - `DB_USER`: The username for the PostgreSQL database.
+    - Default value: `postgres`
+  - `DB_NAME`: The name of the PostgreSQL database.
+    - Default value: `document_parsing`
 
 ## Setting Environment Variables
 
@@ -246,6 +327,7 @@ This application includes Cross-Origin Resource Sharing (CORS) support, allowing
 
 This configuration enables the API to be used by web applications regardless of where they are hosted.
 
+
 ## Database Integration
 
 This application includes integration with PostgreSQL for storing parsed document data. The application creates a table called `parsed_fields` with the following schema:
@@ -323,6 +405,6 @@ The response includes the ID of the newly created record in the database.
 
 ### Database Setup
 
-Before using the `/finalize-parsed-fields` endpoint, you need to set up a PostgreSQL database and configure the application to connect to it using the environment variables described in the "Environment Variables" section.
+Before using the `/finalize-parsed-fields` endpoint, you need to set up a PostgreSQL database and configure the application to connect to it using the environment variables described in the "Prerequisites" section. See the "PostgreSQL Installation" subsection under "Prerequisites" for detailed installation and setup instructions.
 
 If the database connection fails, the application will log a warning and the `/finalize-parsed-fields` endpoint will not be available, but the rest of the application will continue to function.
