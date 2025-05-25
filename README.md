@@ -1,4 +1,4 @@
-# Document Parsing System
+# Document Parsing
 
 A Go application that provides an HTTP endpoint for parsing documents using Google's Gemini API.
 
