@@ -1,0 +1,38 @@
+@startuml Document Parsing System - Data Models
+
+' Style settings
+skinparam backgroundColor white
+skinparam handwritten false
+
+' Data models
+class "JobDetails" {
+    +title: string
+    +salary: string
+    +location: string
+    +experience: string
+    +employmentType: string
+}
+
+class "Form941" {
+    +EIN: string
+    +Name: string
+    +TradeName: string
+    +Address: string
+    +Box1-14: various
+}
+
+class "ParsedFields" {
+    +id: int
+    +parsedFields: json.RawMessage
+    +documentName: string
+    +documentType: string
+    +createdAt: time.Time
+    +updatedAt: time.Time
+}
+
+' Relationships
+JobDetails --|> models
+Form941 --|> models
+ParsedFields --|> models
+
+@enduml 

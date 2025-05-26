@@ -1,0 +1,51 @@
+@startuml Document Parsing System Architecture
+
+' Style settings
+skinparam componentStyle uml2
+skinparam backgroundColor white
+skinparam handwritten false
+
+' Main components
+package "Document Parsing System" {
+    [main.go] as Main
+    package "pkg" {
+        package "api" {
+            [handlers.go] as Handlers
+        }
+        package "config" {
+            [config.go] as Config
+        }
+        package "database" {
+            [database.go] as Database
+        }
+        package "models" {
+            [models.go] as Models
+        }
+        package "parsers" {
+            [parsers.go] as Parsers
+        }
+    }
+}
+
+' External dependencies
+cloud "Gemini AI" as Gemini
+database "SQL Database" as SQLDB
+
+' Relationships
+Main --> Handlers : uses
+Main --> Config : uses
+Main --> Database : uses
+Handlers --> Models : uses
+Handlers --> Parsers : uses
+Handlers --> Database : uses
+Parsers --> Gemini : uses
+Database --> SQLDB : connects to
+
+' API Endpoints
+note right of Handlers
+  Endpoints:
+  - POST /parse-document
+  - POST /finalize-parsed-fields
+end note
+
+@enduml 
