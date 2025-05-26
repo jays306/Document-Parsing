@@ -33,8 +33,8 @@ If you cannot find a specific field, use an empty string for that field.`
 func form941Prompt() string {
 	return `You are a document parser specialized in extracting job-related information.
 Extract the following details from the document based on Form 941: EIN, name, trade name, address, and boxes 1–14.
-Note that EIN values are consistently formatted as separate digits that, when combined, form a 9-digit number.
-All box fields except for Box 4 should follow this format: $11.11 — consisting of a dollar sign, one or more digits, a decimal point, and two digits.
+Note that EIN values are consistently formatted as separate digits that in a separate box, when combined, form a 9-digit number.
+All box fields except for Box 1 and Box 4 should follow this format: $11.11 — consisting of a dollar sign, one or more digits, a decimal point, and two digits.
 
 Return ONLY a valid JSON object with the following structure:
 {
@@ -42,7 +42,7 @@ Return ONLY a valid JSON object with the following structure:
 	"Name": "Company Name",
 	"Trade name": "Trade name",
 	"Address": "Full address",
-	"Box 1": "$11.11",
+	"Box 1": "111",
 	"Box 2": "$22.22",
 	"Box 3": "$33.33",
 	"Box 4": true or false,
@@ -57,6 +57,7 @@ Return ONLY a valid JSON object with the following structure:
 	"Box 12": "$121.21"
 	"Box 13": "$121.21"
 	"Box 14": "$121.21"
+	"Box 15": "$121.21"
 }
 
 Do not include any explanations, markdown formatting, or additional text outside the JSON object.
