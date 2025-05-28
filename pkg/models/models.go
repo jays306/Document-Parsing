@@ -35,6 +35,7 @@ type Form941 struct {
 	Box12     string `json:"Box 12"`
 	Box13     string `json:"Box 13"`
 	Box14     string `json:"Box 14"`
+	Box15     string `json:"Box 15"`
 }
 
 // ParsedFields represents the data to be stored in the database

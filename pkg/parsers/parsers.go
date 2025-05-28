@@ -31,7 +31,7 @@ If you cannot find a specific field, use an empty string for that field.`
 
 // form941Prompt returns the prompt for extracting Form 941 details
 func form941Prompt() string {
-	return `You are a document parser specialized in extracting job-related information.
+	return `You are a document parser specialized in extracting tax-related information.
 Extract the following details from the document based on Form 941: EIN, name, trade name, address, and boxes 1–15.
 Note that EIN values are consistently formatted as separate digits that in a separate box, when combined, form a 9-digit number.
 All box fields except for Box 1 and Box 4 should follow this format: $11.11 — consisting of a dollar sign, one or more digits, a decimal point, and two digits.
